@@ -405,12 +405,11 @@
     <script>
         // Глобальная переменная для Telegram Web App API
         let tg = null;
-        let gameInitialized = false;
         let telegramReadyCalled = false;
         
         // Функция для безопасной инициализации Telegram Web App
         function initTelegramWebApp() {
-            // Вызываем ready() только один раз и только после инициализации игры
+            // Вызываем ready() только один раз
             if (telegramReadyCalled) {
                 return tg;
             }
@@ -420,19 +419,17 @@
                 if (typeof window !== 'undefined' && window.Telegram && window.Telegram.WebApp) {
                     const telegramWebApp = window.Telegram.WebApp;
                     
-                    // Вызываем ready() только если игра уже инициализирована
-                    if (gameInitialized) {
-                        try {
-                            if (typeof telegramWebApp.ready === 'function') {
-                                telegramWebApp.ready();
-                                telegramReadyCalled = true;
-                            }
-                            if (typeof telegramWebApp.expand === 'function') {
-                                telegramWebApp.expand();
-                            }
-                        } catch (e) {
-                            console.error('Ошибка при вызове методов Telegram Web App:', e);
+                    try {
+                        // Вызываем ready() сразу, как только SDK доступен - это убирает индикатор загрузки
+                        if (typeof telegramWebApp.ready === 'function') {
+                            telegramWebApp.ready();
+                            telegramReadyCalled = true;
                         }
+                        if (typeof telegramWebApp.expand === 'function') {
+                            telegramWebApp.expand();
+                        }
+                    } catch (e) {
+                        console.error('Ошибка при вызове методов Telegram Web App:', e);
                     }
                     return telegramWebApp;
                 }
@@ -440,6 +437,13 @@
                 console.error('Ошибка при проверке Telegram Web App:', e);
             }
             return null;
+        }
+        
+        // Попытка инициализации Telegram Web App сразу, если SDK уже загружен
+        function tryInitTelegram() {
+            if (!telegramReadyCalled) {
+                tg = initTelegramWebApp();
+            }
         }
         
         // Единая функция инициализации приложения
@@ -450,30 +454,15 @@
                 return;
             }
             
-            // Инициализируем игру
+            // Сначала пытаемся инициализировать Telegram Web App (чтобы убрать индикатор загрузки)
+            tryInitTelegram();
+            
+            // Затем инициализируем игру
             try {
-                // Инициализируем игру и проверяем успешность
-                const initSuccess = initGame();
-                if (initSuccess) {
-                    gameInitialized = true;
-                    
-                    // После успешной инициализации игры вызываем Telegram ready()
-                    tg = initTelegramWebApp();
-                } else {
-                    // Если инициализация не удалась, все равно вызываем ready() чтобы убрать индикатор
-                    console.warn('Инициализация игры не завершена, но вызываем ready() для Telegram');
-                    if (!telegramReadyCalled) {
-                        gameInitialized = true; // Устанавливаем флаг, чтобы ready() мог быть вызван
-                        tg = initTelegramWebApp();
-                    }
-                }
+                initGame();
             } catch (e) {
                 console.error('Ошибка при инициализации игры:', e);
-                // Даже при ошибке вызываем ready(), чтобы убрать индикатор загрузки
-                if (!telegramReadyCalled) {
-                    gameInitialized = true; // Устанавливаем флаг, чтобы ready() мог быть вызван
-                    tg = initTelegramWebApp();
-                }
+                // Даже при ошибке игры, Telegram ready() уже должен быть вызван
             }
         }
         
@@ -486,8 +475,21 @@
             console.error('❌ Необработанное отклонение промиса:', e.reason);
         });
         
-        // Запускаем инициализацию
+        // Пытаемся инициализировать Telegram сразу, если SDK уже загружен
+        // Используем небольшую задержку, чтобы убедиться, что SDK полностью загружен
+        setTimeout(function() {
+            tryInitTelegram();
+        }, 0);
+        
+        // Запускаем инициализацию приложения
         initializeApp();
+        
+        // Дополнительная попытка инициализации после полной загрузки страницы
+        window.addEventListener('load', function() {
+            setTimeout(function() {
+                tryInitTelegram();
+            }, 0);
+        });
         
         function initGame() {
             try {
