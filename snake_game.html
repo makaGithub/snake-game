@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#667eea">
     <title>Змейка - Telegram Mini App</title>
-    <!-- Telegram Web App SDK - загружаем асинхронно, чтобы не блокировать -->
-    <script src="https://telegram.org/js/telegram-web-app.js" async onerror="console.warn('Не удалось загрузить Telegram Web App SDK')"></script>
+    <!-- Telegram Web App SDK - загружаем синхронно для правильной инициализации -->
+    <script src="https://telegram.org/js/telegram-web-app.js" onerror="console.warn('Не удалось загрузить Telegram Web App SDK')"></script>
     <style>
         * {
             margin: 0;
@@ -405,27 +405,36 @@
     <script>
         // Глобальная переменная для Telegram Web App API
         let tg = null;
+        let gameInitialized = false;
+        let telegramReadyCalled = false;
         
         // Функция для безопасной инициализации Telegram Web App
         function initTelegramWebApp() {
+            // Вызываем ready() только один раз и только после инициализации игры
+            if (telegramReadyCalled) {
+                return tg;
+            }
+            
             try {
                 // Проверяем наличие Telegram Web App API
                 if (typeof window !== 'undefined' && window.Telegram && window.Telegram.WebApp) {
                     const telegramWebApp = window.Telegram.WebApp;
                     
-                    // Инициализируем только если функции доступны
-                    try {
-                        if (typeof telegramWebApp.ready === 'function') {
-                            telegramWebApp.ready();
+                    // Вызываем ready() только если игра уже инициализирована
+                    if (gameInitialized) {
+                        try {
+                            if (typeof telegramWebApp.ready === 'function') {
+                                telegramWebApp.ready();
+                                telegramReadyCalled = true;
+                            }
+                            if (typeof telegramWebApp.expand === 'function') {
+                                telegramWebApp.expand();
+                            }
+                        } catch (e) {
+                            console.error('Ошибка при вызове методов Telegram Web App:', e);
                         }
-                        if (typeof telegramWebApp.expand === 'function') {
-                            telegramWebApp.expand();
-                        }
-                        return telegramWebApp;
-                    } catch (e) {
-                        console.error('Ошибка при вызове методов Telegram Web App:', e);
-                        return telegramWebApp; // Возвращаем объект даже при ошибке
                     }
+                    return telegramWebApp;
                 }
             } catch (e) {
                 console.error('Ошибка при проверке Telegram Web App:', e);
@@ -433,64 +442,40 @@
             return null;
         }
         
-        // Инициализация игры - максимально упрощенная версия
-        function startApp() {
-            // Инициализируем игру сразу, без задержек
-            try {
-                initGame();
-            } catch (e) {
-                console.error('Ошибка инициализации:', e);
+        // Единая функция инициализации приложения
+        function initializeApp() {
+            // Проверяем, что DOM готов
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', initializeApp);
+                return;
             }
             
-            // Telegram API инициализируем асинхронно, не блокируя игру
-            setTimeout(function() {
-                try {
+            // Инициализируем игру
+            try {
+                // Инициализируем игру и проверяем успешность
+                const initSuccess = initGame();
+                if (initSuccess) {
+                    gameInitialized = true;
+                    
+                    // После успешной инициализации игры вызываем Telegram ready()
                     tg = initTelegramWebApp();
-                } catch (e) {
-                    // Игнорируем
-                }
-            }, 200);
-        }
-        
-        // Запускаем игру как можно раньше
-        if (document.readyState === 'complete' || document.readyState === 'interactive') {
-            startApp();
-        } else {
-            document.addEventListener('DOMContentLoaded', startApp);
-        }
-        
-        // Дополнительная попытка инициализации Telegram API после полной загрузки
-        window.addEventListener('load', function() {
-            setTimeout(function() {
-                if (!tg && typeof window.Telegram !== 'undefined' && window.Telegram.WebApp) {
-                    try {
+                } else {
+                    // Если инициализация не удалась, все равно вызываем ready() чтобы убрать индикатор
+                    console.warn('Инициализация игры не завершена, но вызываем ready() для Telegram');
+                    if (!telegramReadyCalled) {
+                        gameInitialized = true; // Устанавливаем флаг, чтобы ready() мог быть вызван
                         tg = initTelegramWebApp();
-                    } catch (e) {
-                        // Игнорируем ошибки
                     }
                 }
-            }, 200);
-        });
-        
-        // Проверка загрузки всех ресурсов
-        window.addEventListener('load', function() {
-            console.log('✅ Все ресурсы загружены');
-            
-            // Проверяем наличие необходимых функций
-            if (typeof initGame === 'function') {
-                console.log('✅ Функция initGame доступна');
-            } else {
-                console.error('❌ Функция initGame не найдена!');
+            } catch (e) {
+                console.error('Ошибка при инициализации игры:', e);
+                // Даже при ошибке вызываем ready(), чтобы убрать индикатор загрузки
+                if (!telegramReadyCalled) {
+                    gameInitialized = true; // Устанавливаем флаг, чтобы ready() мог быть вызван
+                    tg = initTelegramWebApp();
+                }
             }
-            
-            // Проверяем canvas
-            const canvas = document.getElementById('gameCanvas');
-            if (canvas) {
-                console.log('✅ Canvas найден:', canvas.width + 'x' + canvas.height);
-            } else {
-                console.error('❌ Canvas не найден!');
-            }
-        });
+        }
         
         // Обработка ошибок
         window.addEventListener('error', function(e) {
@@ -501,18 +486,21 @@
             console.error('❌ Необработанное отклонение промиса:', e.reason);
         });
         
+        // Запускаем инициализацию
+        initializeApp();
+        
         function initGame() {
             try {
                 canvas = document.getElementById('gameCanvas');
                 if (!canvas) {
                     console.error('Canvas не найден!');
-                    return;
+                    return false;
                 }
                 
                 ctx = canvas.getContext('2d');
                 if (!ctx) {
                     console.error('Не удалось получить контекст canvas!');
-                    return;
+                    return false;
                 }
                 
                 // Адаптивный размер canvas для Telegram Mini App
@@ -535,7 +523,6 @@
                 snake = [
                     {x: startX, y: startY}
                 ];
-                console.log('🐍 Начальная позиция змейки:', startX, startY);
                 food = {};
                 dx = 0;
                 dy = 0;
@@ -545,7 +532,10 @@
                 gamePaused = false;
                 gameLoop = null;
 
-                document.getElementById('highScore').textContent = highScore;
+                const highScoreEl = document.getElementById('highScore');
+                if (highScoreEl) {
+                    highScoreEl.textContent = highScore;
+                }
 
                 // Добавляем поддержку roundRect для старых браузеров
                 if (!ctx.roundRect) {
@@ -569,9 +559,16 @@
                 
                 // Инициализация - рисуем начальное состояние
                 drawGame();
+                
+                // Возвращаем true при успешной инициализации
+                return true;
             } catch (e) {
                 console.error('Ошибка при инициализации игры:', e);
-                alert('Ошибка при загрузке игры: ' + e.message);
+                // Не показываем alert в Telegram, чтобы не блокировать
+                if (typeof window.Telegram === 'undefined') {
+                    alert('Ошибка при загрузке игры: ' + e.message);
+                }
+                return false;
             }
         }
 
