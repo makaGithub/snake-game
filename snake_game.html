@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#667eea">
     <title>Змейка - Telegram Mini App</title>
     <!-- Telegram Web App SDK - загружаем асинхронно, чтобы не блокировать -->
-    <script src="https://telegram.org/js/telegram-web-app.js" async></script>
+    <script src="https://telegram.org/js/telegram-web-app.js" async onerror="console.warn('Не удалось загрузить Telegram Web App SDK')"></script>
     <style>
         * {
             margin: 0;
@@ -397,8 +397,8 @@
             <h2>Игра окончена!</h2>
             <p>Ваш счет: <span id="finalScore">0</span></p>
             <p>Рекорд: <span id="finalHighScore">0</span></p>
-            <button class="action-btn" onclick="restartGame()">Играть снова</button>
-            <button class="action-btn restart" onclick="sendScoreToBot()" style="margin-top: 10px;">Отправить результат</button>
+            <button class="action-btn" id="restartGameOverBtn">Играть снова</button>
+            <button class="action-btn restart" id="sendScoreBtn" style="margin-top: 10px;">Отправить результат</button>
         </div>
     </div>
 
@@ -433,32 +433,30 @@
             return null;
         }
         
-        // Инициализация игры - упрощенная версия
+        // Инициализация игры - максимально упрощенная версия
         function startApp() {
+            // Инициализируем игру сразу, без задержек
             try {
-                // Сначала инициализируем игру (не ждем Telegram API)
                 initGame();
-                
-                // Затем пытаемся инициализировать Telegram Web App (не блокируем игру)
-                setTimeout(function() {
-                    try {
-                        tg = initTelegramWebApp();
-                    } catch (e) {
-                        // Игнорируем ошибки Telegram API
-                    }
-                }, 100);
             } catch (e) {
-                console.error('Критическая ошибка инициализации:', e);
-                alert('Ошибка при загрузке игры. Пожалуйста, обновите страницу.');
+                console.error('Ошибка инициализации:', e);
             }
+            
+            // Telegram API инициализируем асинхронно, не блокируя игру
+            setTimeout(function() {
+                try {
+                    tg = initTelegramWebApp();
+                } catch (e) {
+                    // Игнорируем
+                }
+            }, 200);
         }
         
-        // Запускаем игру сразу после загрузки DOM
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', startApp);
-        } else {
-            // DOM уже загружен - запускаем сразу
+        // Запускаем игру как можно раньше
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
             startApp();
+        } else {
+            document.addEventListener('DOMContentLoaded', startApp);
         }
         
         // Дополнительная попытка инициализации Telegram API после полной загрузки
@@ -504,8 +502,6 @@
         });
         
         function initGame() {
-            console.log('🎮 Инициализация игры...');
-            
             try {
                 canvas = document.getElementById('gameCanvas');
                 if (!canvas) {
@@ -520,7 +516,7 @@
                 }
                 
                 // Адаптивный размер canvas для Telegram Mini App
-                const containerWidth = canvas.parentElement.clientWidth - 30; // Учитываем padding
+                const containerWidth = canvas.parentElement ? (canvas.parentElement.clientWidth - 30) : 400;
                 const maxCanvasSize = Math.min(containerWidth, 400);
                 const canvasSize = Math.floor(maxCanvasSize / 20) * 20; // Округляем до кратного 20
                 
@@ -531,9 +527,6 @@
                 
                 gridSize = 20;
                 tileCount = canvas.width / gridSize;
-                
-                console.log('📐 Canvas размер:', canvasSize + 'x' + canvasSize);
-                console.log('📊 Tile count:', tileCount);
 
                 // Глобальные переменные игры
                 // Начальная позиция в центре поля
@@ -571,10 +564,11 @@
                     };
                 }
 
+                // Инициализация обработчиков событий
+                setupEventHandlers();
+                
                 // Инициализация - рисуем начальное состояние
-                console.log('🎨 Отрисовка начального состояния...');
                 drawGame();
-                console.log('✅ Игра инициализирована успешно!');
             } catch (e) {
                 console.error('Ошибка при инициализации игры:', e);
                 alert('Ошибка при загрузке игры: ' + e.message);
@@ -799,7 +793,8 @@
             // Проверка поедания еды
             if (head.x === food.x && head.y === food.y) {
                 score += 10;
-                document.getElementById('score').textContent = score;
+                const scoreEl = document.getElementById('score');
+                if (scoreEl) scoreEl.textContent = score;
                 generateFood();
                 
                 // Вибрация (если поддерживается)
@@ -826,40 +821,52 @@
 
         // Управление
         function changeDirection(newDx, newDy) {
+            if (!gameRunning || gamePaused) return;
             if (dx === -newDx && dy === -newDy) return; // Предотвращаем движение назад
             dx = newDx;
             dy = newDy;
         }
 
-        // Обработчики кнопок
-        document.querySelectorAll('.control-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const direction = btn.dataset.direction;
-                switch(direction) {
-                    case 'up': changeDirection(0, -1); break;
-                    case 'down': changeDirection(0, 1); break;
-                    case 'left': changeDirection(-1, 0); break;
-                    case 'right': changeDirection(1, 0); break;
+        // Инициализация обработчиков событий
+        function setupEventHandlers() {
+            // Обработчики кнопок управления
+            document.querySelectorAll('.control-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const direction = btn.dataset.direction;
+                    switch(direction) {
+                        case 'up': changeDirection(0, -1); break;
+                        case 'down': changeDirection(0, 1); break;
+                        case 'left': changeDirection(-1, 0); break;
+                        case 'right': changeDirection(1, 0); break;
+                    }
+                });
+            });
+
+            // Клавиатурное управление
+            document.addEventListener('keydown', (e) => {
+                if (!gameRunning) return;
+                
+                switch(e.key) {
+                    case 'ArrowUp': changeDirection(0, -1); e.preventDefault(); break;
+                    case 'ArrowDown': changeDirection(0, 1); e.preventDefault(); break;
+                    case 'ArrowLeft': changeDirection(-1, 0); e.preventDefault(); break;
+                    case 'ArrowRight': changeDirection(1, 0); e.preventDefault(); break;
                 }
             });
-        });
 
-        // Клавиатурное управление
-        document.addEventListener('keydown', (e) => {
-            if (!gameRunning) return;
+            // Кнопки управления
+            const startBtn = document.getElementById('startBtn');
+            const pauseBtn = document.getElementById('pauseBtn');
+            const restartBtn = document.getElementById('restartBtn');
+            const restartGameOverBtn = document.getElementById('restartGameOverBtn');
+            const sendScoreBtn = document.getElementById('sendScoreBtn');
             
-            switch(e.key) {
-                case 'ArrowUp': changeDirection(0, -1); e.preventDefault(); break;
-                case 'ArrowDown': changeDirection(0, 1); e.preventDefault(); break;
-                case 'ArrowLeft': changeDirection(-1, 0); e.preventDefault(); break;
-                case 'ArrowRight': changeDirection(1, 0); e.preventDefault(); break;
-            }
-        });
-
-        // Кнопки управления
-        document.getElementById('startBtn').addEventListener('click', startGame);
-        document.getElementById('pauseBtn').addEventListener('click', togglePause);
-        document.getElementById('restartBtn').addEventListener('click', restartGame);
+            if (startBtn) startBtn.addEventListener('click', startGame);
+            if (pauseBtn) pauseBtn.addEventListener('click', togglePause);
+            if (restartBtn) restartBtn.addEventListener('click', restartGame);
+            if (restartGameOverBtn) restartGameOverBtn.addEventListener('click', restartGame);
+            if (sendScoreBtn) sendScoreBtn.addEventListener('click', sendScoreToBot);
+        }
 
         function startGame() {
             if (gameRunning) return;
@@ -868,7 +875,8 @@
             dx = 0;
             dy = 0;
             score = 0;
-            document.getElementById('score').textContent = 0;
+            const scoreEl = document.getElementById('score');
+            if (scoreEl) scoreEl.textContent = 0;
             
             // Убеждаемся, что змейка в правильной позиции
             const startX = Math.floor(tileCount / 2);
@@ -885,21 +893,25 @@
             drawGame();
             
             // Запускаем игровой цикл
+            if (gameLoop) clearInterval(gameLoop);
             gameLoop = setInterval(gameStep, 150);
-            document.getElementById('startBtn').textContent = 'Игра идет...';
-            document.getElementById('startBtn').disabled = true;
             
-            console.log('Игра запущена');
+            const startBtn = document.getElementById('startBtn');
+            if (startBtn) {
+                startBtn.textContent = 'Игра идет...';
+                startBtn.disabled = true;
+            }
         }
 
         function togglePause() {
             if (!gameRunning) return;
             gamePaused = !gamePaused;
-            document.getElementById('pauseBtn').textContent = gamePaused ? 'Продолжить' : 'Пауза';
+            const pauseBtn = document.getElementById('pauseBtn');
+            if (pauseBtn) pauseBtn.textContent = gamePaused ? 'Продолжить' : 'Пауза';
         }
 
         function restartGame() {
-            clearInterval(gameLoop);
+            if (gameLoop) clearInterval(gameLoop);
             
             // Сбрасываем состояние
             dx = 0;
@@ -915,34 +927,47 @@
             food = {};
             
             // Обновляем UI
-            document.getElementById('score').textContent = 0;
-            document.getElementById('startBtn').textContent = 'Старт';
-            document.getElementById('startBtn').disabled = false;
-            document.getElementById('pauseBtn').textContent = 'Пауза';
-            document.getElementById('gameOver').style.display = 'none';
+            const scoreEl = document.getElementById('score');
+            const startBtn = document.getElementById('startBtn');
+            const pauseBtn = document.getElementById('pauseBtn');
+            const gameOverEl = document.getElementById('gameOver');
+            
+            if (scoreEl) scoreEl.textContent = 0;
+            if (startBtn) {
+                startBtn.textContent = 'Старт';
+                startBtn.disabled = false;
+            }
+            if (pauseBtn) pauseBtn.textContent = 'Пауза';
+            if (gameOverEl) gameOverEl.style.display = 'none';
             
             // Отрисовываем пустое поле
             clearCanvas();
             drawSnake();
-            
-            console.log('Игра сброшена');
         }
 
         function gameOver() {
-            clearInterval(gameLoop);
+            if (gameLoop) clearInterval(gameLoop);
             gameRunning = false;
             
             if (score > highScore) {
                 highScore = score;
                 localStorage.setItem('snakeHighScore', highScore);
-                document.getElementById('highScore').textContent = highScore;
+                const highScoreEl = document.getElementById('highScore');
+                if (highScoreEl) highScoreEl.textContent = highScore;
             }
             
-            document.getElementById('finalScore').textContent = score;
-            document.getElementById('finalHighScore').textContent = highScore;
-            document.getElementById('gameOver').style.display = 'flex';
-            document.getElementById('startBtn').textContent = 'Старт';
-            document.getElementById('startBtn').disabled = false;
+            const finalScoreEl = document.getElementById('finalScore');
+            const finalHighScoreEl = document.getElementById('finalHighScore');
+            const gameOverEl = document.getElementById('gameOver');
+            const startBtn = document.getElementById('startBtn');
+            
+            if (finalScoreEl) finalScoreEl.textContent = score;
+            if (finalHighScoreEl) finalHighScoreEl.textContent = highScore;
+            if (gameOverEl) gameOverEl.style.display = 'flex';
+            if (startBtn) {
+                startBtn.textContent = 'Старт';
+                startBtn.disabled = false;
+            }
         }
 
         // Отправка результата в бота
