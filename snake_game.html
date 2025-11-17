@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#667eea">
     <title>Змейка - Telegram Mini App</title>
-    <!-- Telegram Web App SDK -->
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- Telegram Web App SDK - загружаем асинхронно, чтобы не блокировать -->
+    <script src="https://telegram.org/js/telegram-web-app.js" async></script>
     <style>
         * {
             margin: 0;
@@ -408,108 +408,71 @@
         
         // Функция для безопасной инициализации Telegram Web App
         function initTelegramWebApp() {
-            console.log('Проверка Telegram Web App API...');
-            
-            // Проверяем, что мы в Telegram - пробуем несколько способов
-            let telegramWebApp = null;
-            
-            // Способ 1: window.Telegram.WebApp
-            if (typeof window !== 'undefined' && window.Telegram && window.Telegram.WebApp) {
-                telegramWebApp = window.Telegram.WebApp;
-                console.log('✅ Telegram Web App найден через window.Telegram.WebApp');
-            }
-            // Способ 2: window.TelegramWebApp (альтернативный способ)
-            else if (typeof window !== 'undefined' && window.TelegramWebApp) {
-                telegramWebApp = window.TelegramWebApp;
-                console.log('✅ Telegram Web App найден через window.TelegramWebApp');
-            }
-            // Способ 3: Проверяем через несколько попыток
-            else if (typeof window !== 'undefined') {
-                // Ждем немного и пробуем снова
-                setTimeout(function() {
-                    if (window.Telegram && window.Telegram.WebApp) {
-                        telegramWebApp = window.Telegram.WebApp;
-                        console.log('✅ Telegram Web App найден после задержки');
-                        if (telegramWebApp) {
-                            try {
-                                telegramWebApp.ready();
-                                telegramWebApp.expand();
-                            } catch (e) {
-                                console.error('Ошибка при повторной инициализации:', e);
-                            }
-                        }
-                    }
-                }, 200);
-            }
-            
-            if (!telegramWebApp) {
-                console.warn('⚠️ Telegram Web App API не найден (возможно, открыто не в Telegram)');
-                // Игра все равно должна работать, просто без Telegram функций
-                return null;
-            }
-            
             try {
-                // Инициализируем Telegram Web App
-                if (typeof telegramWebApp.ready === 'function') {
-                    telegramWebApp.ready();
-                    console.log('✅ Вызван telegramWebApp.ready()');
+                // Проверяем наличие Telegram Web App API
+                if (typeof window !== 'undefined' && window.Telegram && window.Telegram.WebApp) {
+                    const telegramWebApp = window.Telegram.WebApp;
+                    
+                    // Инициализируем только если функции доступны
+                    try {
+                        if (typeof telegramWebApp.ready === 'function') {
+                            telegramWebApp.ready();
+                        }
+                        if (typeof telegramWebApp.expand === 'function') {
+                            telegramWebApp.expand();
+                        }
+                        return telegramWebApp;
+                    } catch (e) {
+                        console.error('Ошибка при вызове методов Telegram Web App:', e);
+                        return telegramWebApp; // Возвращаем объект даже при ошибке
+                    }
                 }
-                if (typeof telegramWebApp.expand === 'function') {
-                    telegramWebApp.expand();
-                    console.log('✅ Вызван telegramWebApp.expand()');
-                }
-                console.log('✅ Telegram Web App инициализирован успешно');
-                if (telegramWebApp.version) {
-                    console.log('📱 Версия Telegram Web App:', telegramWebApp.version);
-                }
-                return telegramWebApp;
             } catch (e) {
-                console.error('❌ Ошибка инициализации Telegram Web App:', e);
-                console.error('Детали ошибки:', e.message);
-                // Не возвращаем null, чтобы игра все равно работала
-                return telegramWebApp;
+                console.error('Ошибка при проверке Telegram Web App:', e);
             }
+            return null;
         }
         
-        // Инициализация игры
-        console.log('Инициализация игры...');
-        
-        // Функция для инициализации игры
-        function initializeApp() {
-            // Инициализируем Telegram Web App (если доступен)
-            tg = initTelegramWebApp();
-            
-            // Инициализируем игру (работает даже без Telegram)
+        // Инициализация игры - упрощенная версия
+        function startApp() {
             try {
+                // Сначала инициализируем игру (не ждем Telegram API)
                 initGame();
-                console.log('✅ Игра инициализирована');
+                
+                // Затем пытаемся инициализировать Telegram Web App (не блокируем игру)
+                setTimeout(function() {
+                    try {
+                        tg = initTelegramWebApp();
+                    } catch (e) {
+                        // Игнорируем ошибки Telegram API
+                    }
+                }, 100);
             } catch (e) {
-                console.error('❌ Ошибка инициализации игры:', e);
-                console.error('Стек ошибки:', e.stack);
+                console.error('Критическая ошибка инициализации:', e);
                 alert('Ошибка при загрузке игры. Пожалуйста, обновите страницу.');
             }
         }
         
-        // Ждем загрузки DOM
+        // Запускаем игру сразу после загрузки DOM
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', function() {
-                console.log('✅ DOM загружен');
-                // Пытаемся инициализировать сразу
-                initializeApp();
-                
-                // Если Telegram API еще не загружен, пробуем еще раз через небольшую задержку
-                if (!tg && typeof window.Telegram === 'undefined') {
-                    setTimeout(function() {
-                        console.log('Повторная попытка инициализации Telegram API...');
-                        tg = initTelegramWebApp();
-                    }, 500);
-                }
-            });
+            document.addEventListener('DOMContentLoaded', startApp);
         } else {
-            // DOM уже загружен
-            console.log('✅ DOM уже загружен');
-            initializeApp();
+            // DOM уже загружен - запускаем сразу
+            startApp();
         }
+        
+        // Дополнительная попытка инициализации Telegram API после полной загрузки
+        window.addEventListener('load', function() {
+            setTimeout(function() {
+                if (!tg && typeof window.Telegram !== 'undefined' && window.Telegram.WebApp) {
+                    try {
+                        tg = initTelegramWebApp();
+                    } catch (e) {
+                        // Игнорируем ошибки
+                    }
+                }
+            }, 200);
+        });
         
         // Проверка загрузки всех ресурсов
         window.addEventListener('load', function() {
